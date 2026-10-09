@@ -4,7 +4,7 @@ from typing import Dict
 import idyntree.bindings as idyntree
 import numpy as np
 
-from blend_my_bot import Link
+from .link import Link
 
 
 @dataclass
