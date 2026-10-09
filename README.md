@@ -10,20 +10,150 @@
 
 ## 🐍 Requirements
 
+For the Blender extension, you only need a supported **Blender installation on
+Linux x86-64**. Its ZIP includes iDynTree and matching dependency wheels; do not
+replace Blender's Python or install `bpy` inside Blender.
+
+For the Python scripting API:
+
 - [`python3`](<https://wiki.python.org/moin/BeginnersGuide>)
 - [`Blender 4`](<https://www.blender.org/download/>)
 - [`iDynTree`](<https://github.com/robotology/idyntree>)
 - [`numpy`](<https://numpy.org/>)
+- [`resolve-robotics-uri-py`](<https://github.com/ami-iit/resolve-robotics-uri-py>)
 - [`bpy 4`](<https://pypi.org/project/bpy/>)
 
 > [!NOTE]
 > You should use a Python version that matches the one supported by the Blender version.
-> For example, Blender 4 supports Python 3.10
+> The Python version varies between Blender releases. Check the particular
+> Blender installation rather than assuming all Blender 4 releases use the same version.
 
 > [!NOTE]
 > This library does not define the rig of the robot. For this, you can use a library such as [`blender-robotics-utils`](https://github.com/robotology/blender-robotics-utils).
 
 ## 💾 Installation
+
+### Recommended: Blender extension (Linux x86-64)
+
+1. Download the extension ZIP matching your Blender **major.minor** release.
+   The repository's **Blender extension** GitHub Actions workflow produces ZIPs
+   as build artifacts when it runs. Unzip the downloaded artifact container to
+   get the installable extension ZIP, or build one locally as described below.
+2. In Blender, open **Edit → Preferences → Get Extensions**, open the top-right
+   menu, and choose **Install from Disk**. Select the extension ZIP and enable it.
+3. Choose **File → Import → Robot (.urdf)**, or open the 3D View sidebar with
+   **N** and select the **Blend My Bot** tab.
+4. Select an available robot package and URDF, or use **Browse URDF File**.
+
+#### Choose a robot from installed packages
+
+In the **Blend My Bot** sidebar:
+
+1. Open **Package Search Folders** and add a robot package directory or the folder
+   containing your packages, if they are not already in a robotics resource path.
+2. Click **Refresh Available Robots**. Discovery also searches the resource paths
+   used by resolve-robotics-uri-py, including ROS and Gazebo environment paths.
+3. Choose a **Package**, then a **URDF**. URDF choices show relative paths, so
+   variants with the same filename remain distinguishable.
+4. Click **Import Selected Robot**.
+
+Repository layouts such as `share/gene/robots/gene01/model.urdf` are supported:
+you can add the repository root, its `share/` directory, or `share/gene/`.
+The package selector shows **gene**, and `package://gene/...` meshes resolve
+without installing the model package or activating a Conda environment.
+
+Discovery does not download or install packages. It lists existing `.urdf` files
+recursively, groups them by their nearest `package.xml` or `model.config`, and
+otherwise uses their package folder. Symlinked packages are supported, duplicate
+files and symlink cycles are avoided, and hidden subdirectories are skipped.
+Xacro templates are not listed: generate their URDFs first.
+
+The scan runs in short UI timer batches; press **Esc** to cancel and keep the
+previous results. Refresh after changing search paths or adding/removing files.
+If a scan raised a Python error, restart Blender to clear the failed scan before
+installing an updated extension ZIP and refreshing again.
+Catalogs are rebuilt on demand rather than saved into the Blender project.
+You can still use **Browse URDF File** or **File → Import → Robot (.urdf)**.
+
+Each import creates a separate collection, including when importing the same
+robot twice. Blender's regular materials, camera, lighting, rendering, undo,
+and project saving work normally. No Conda, terminal, symlink, administrator
+access, or VS Code is needed by the user.
+
+`package://` and `model://` mesh paths are resolved by
+[`resolve-robotics-uri-py`](https://github.com/ami-iit/resolve-robotics-uri-py),
+which is bundled with the extension. It searches robotics environment variables
+such as `ROS_PACKAGE_PATH`, `AMENT_PREFIX_PATH` (under each prefix's `share/`),
+`GAZEBO_MODEL_PATH`, `GZ_SIM_RESOURCE_PATH`, and `RRU_ADDITIONAL_PATHS`, as well
+as its default Python-prefix resource directories.
+
+You can also open **Package Search Folders** in the panel and add either the
+package directory itself or its parent directory. These folders and the URDF
+directory are passed to the resolver as additional search paths; no Conda or ROS
+activation is required when your saved folders are sufficient. Environment
+variables must be present in Blender's process: Blender launched from a desktop
+icon does not automatically inherit a separately activated terminal environment.
+The preferences use Blender's normal preference-saving behavior; save preferences
+manually if auto-save is disabled. Relative mesh paths resolve against the URDF
+directory, not the shell's working directory. Absolute paths and local `file://`
+URIs are also supported. The original URDF is never modified.
+
+**Current scope:** static URDF import with OBJ/STL visual meshes, including
+multiple visuals per link. Primitive visuals and other mesh formats produce
+explicit errors. Mesh files referenced by collision geometry must also exist.
+No rig is generated. Trajectory-file import and a joint-selection UI are not
+part of this first extension; animation remains available through the Python
+API below. Windows and macOS builds are not yet provided because this release
+uses Linux iDynTree wheels.
+
+#### Build the extension from source
+
+Use a build-time Python environment with pip and the target Blender executable:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python tools/build_extension.py --blender /path/to/blender
+```
+
+The builder downloads pinned iDynTree and resolve-robotics-uri-py wheels and the
+NumPy version used by that Blender runtime, copies the scripting API library, and
+produces a self-contained ZIP under `dist/`. Installation requires no network
+access. The manifest limits installation to the Blender major.minor release
+used to build it, preventing installation with an incompatible Python ABI.
+Blender 4.2 or later is required.
+
+To validate locally without changing your normal Blender preferences:
+
+```bash
+python -m pip install resolve-robotics-uri-py==0.5.1
+python -m unittest discover -s tests -p 'test_*.py'
+BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
+  --factory-startup --python-exit-code 1 --python tests/blender_smoke.py -- \
+  dist/blend_my_bot-0.1.0-blender-4.2-linux-x64.zip
+```
+
+Use your actual ZIP filename. The smoke test installs the extension into a
+temporary repository, imports a test fixture twice, checks geometry and error handling,
+tests package discovery and selected-URDF imports, tests the scripting API, and
+disables/re-enables the extension.
+
+To test a local robot model repository through the package browser:
+
+```bash
+BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
+  --factory-startup --python-exit-code 1 --python tests/blender_models.py -- \
+  dist/blend_my_bot-0.1.0-blender-5.2-linux-x64.zip /path/to/gb-gene-models
+```
+
+This imports all discovered URDFs under the repository's `share/` directory,
+checks mesh resolution, object counts, and bounding dimensions, and cleans up
+each imported robot before testing the next. Source URDFs are checked for changes.
+
+### Advanced: existing Conda scripting setup
+
+The instructions below are retained for existing developer workflows. They
+modify Blender's Python installation and are **not necessary for the extension**.
 
 Create a conda environment and install the dependencies:
 
@@ -64,6 +194,10 @@ From the root of the repository install the package:
 ```bash
 pip install blend-my-bot
 ```
+
+When running Blender's Python API from a standalone Python environment rather
+than inside Blender, install `pip install 'blend-my-bot[standalone]'` to also
+install `bpy`. Inside Blender, use its existing `bpy` module.
 
 If you want to run the scripts from `Visual Studio Code`, you need to install the `vscode python` extension and set the python interpreter to the already created conda environment.
 
@@ -116,13 +250,45 @@ for k in range(number_of_frames):
     s = joint_trajectory[k]
     # get the base pose described by a 4x4 homogeneous matrix at time k
     w_H_b = base_trajectory[k]
-    # update the robot model
-    model.update(w_H_b, s)
     # set the frame
     bpy.context.scene.frame_set(k)
+    # update the robot model and insert keyframes at this frame
+    model.update(w_H_b, s)
 ```
 
 Have a look at the `examples` folder for more examples.
+
+### Motion through the existing Python example
+
+`examples/jumping/main.py` loads the iCub `iCubGazeboV2_7` model, selects its
+23-joint reduced model, and reads `examples/jumping/jumping.pickle`. For each
+sample it sets the base pose and joint positions and inserts mesh location and
+rotation keyframes. Playback then uses Blender's normal timeline; no rig is
+required.
+
+The supplied file contains 61 stored samples over approximately 5.63 seconds.
+Its joint names are **not** stored in the pickle: the ordering is the
+`joints_list` in the script. The current example loops over `knots` (60), so
+the final stored sample is not baked. Do not apply this iCub trajectory directly
+to a Gene robot without a compatible trajectory and explicit joint mapping.
+
+To run the unchanged script:
+
+1. Use the Python scripting setup described above, with `blend_my_bot`, NumPy,
+   SciPy and `resolve_robotics_uri_py` available to Blender's Python.
+2. Make the iCub model and mesh package available to the resolver, for example
+   through `RRU_ADDITIONAL_PATHS` pointing to the folder containing `iCub`.
+3. Run the script from the repository root using the Blender Development
+   workflow, or paste it into Blender's Scripting workspace. When using the
+   Scripting workspace, change `pickle_path` to the file's absolute path.
+4. Play the timeline and save the animated scene as a `.blend` file.
+
+Installing only the extension does not make the unchanged script's imports
+available: its library lives under Blender's extension namespace rather than
+the top-level `blend_my_bot`, and it does not bundle SciPy. Motion-file loading
+in the extension panel remains a separate feature.
+
+Only load pickle files you trust: deserialization can execute Python code.
 
 In the `examples/jumping` folder you can find a script that generates a jumping animation of the `iCub` robot. Here the meshes are in a gray, `stl` format.
 
