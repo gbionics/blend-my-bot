@@ -88,8 +88,8 @@ for k in range(data["knots"]):
     w_H_b = np.eye(4)
     w_H_b[:3, 3] = p
     w_H_b[:3, :3] = Rotation.from_quat(q).as_matrix()
+    # set the current frame before inserting keyframes
+    bpy.context.scene.frame_set(k)
     # update the model
     # the update method inserts also keyframes of the meshes for the animation
     model.update(w_H_b, s)
-    # set the current frame
-    bpy.context.scene.frame_set(k)
