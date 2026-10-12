@@ -15,6 +15,57 @@ spec.loader.exec_module(urdf_paths)
 
 
 class UrdfPathsTests(unittest.TestCase):
+    def test_inline_and_named_visual_colors_are_validated(self):
+        root = ET.fromstring(
+            '<robot name="colors"><material name="dark"><color rgba="0.2 0.2 0.2 1"/></material>'
+            '<link name="base"><visual><material name="dark"/></visual>'
+            '<visual><material name="inline"><color rgba="0.1 0.4 0.8 0.35"/></material></visual>'
+            "<visual/></link></robot>"
+        )
+        urdf_paths.validate_visual_materials(root)
+        self.assertEqual(root.find("./link/visual/material").get("name"), "dark")
+
+    def test_invalid_visual_colors_and_references_fail_explicitly(self):
+        for rgba in (
+            "",
+            "0.1 0.2 0.3",
+            "0 0 0 1 1",
+            "0 0 nan 1",
+            "0 inf 0 1",
+            "-0.1 0 0 1",
+            "0 0 0 1.1",
+            "red",
+        ):
+            for named in (False, True):
+                with self.subTest(rgba=rgba, named=named):
+                    definition = (
+                        f'<material name="bad"><color rgba="{rgba}"/></material>'
+                    )
+                    reference = '<material name="bad"/>' if named else definition
+                    root = ET.fromstring(
+                        f'<robot name="bad">{definition if named else ""}<link name="base">'
+                        f"<visual>{reference}"
+                        "</visual></link></robot>"
+                    )
+                    with self.assertRaisesRegex(ValueError, "RGBA"):
+                        urdf_paths.validate_visual_materials(root)
+        for material in (
+            '<material name="unknown"/>',
+            '<material name="texture"><texture filename="texture.png"/></material>',
+        ):
+            root = ET.fromstring(
+                f'<robot name="bad"><link name="base"><visual>{material}</visual></link></robot>'
+            )
+            with self.assertRaisesRegex(ValueError, "undefined|texture-only"):
+                urdf_paths.validate_visual_materials(root)
+
+    def test_duplicate_global_materials_are_rejected(self):
+        root = ET.fromstring(
+            '<robot name="bad"><material name="same"/><material name="same"/></robot>'
+        )
+        with self.assertRaisesRegex(ValueError, "unique"):
+            urdf_paths.validate_visual_materials(root)
+
     def setUp(self):
         environment = patch.dict(os.environ, {}, clear=True)
         environment.start()

@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from math import isfinite
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Iterator, Sequence
@@ -6,6 +7,45 @@ from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 
 from resolve_robotics_uri_py import resolve_robotics_uri
+
+
+def validate_visual_materials(root: ET.Element) -> None:
+    named = {}
+    for material in root.findall("material"):
+        name = material.get("name")
+        if not name or name in named:
+            raise ValueError("URDF global materials need unique, nonempty names")
+        named[name] = material
+    for link in root.findall("link"):
+        for index, visual in enumerate(link.findall("visual")):
+            material = visual.find("material")
+            if material is None:
+                continue
+            label = f"link '{link.get('name')}', visual {index}"
+            if material.find("color") is None and material.find("texture") is None:
+                name = material.get("name")
+                if name not in named:
+                    raise ValueError(f"URDF material '{name}' is undefined on {label}")
+                material = named[name]
+            color = material.find("color")
+            if color is None:
+                raise ValueError(
+                    f"URDF material on {label} has no RGBA color; "
+                    "texture-only URDF materials are not supported"
+                )
+            try:
+                rgba = tuple(float(value) for value in color.get("rgba", "").split())
+            except ValueError as error:
+                raise ValueError(
+                    f"Invalid URDF material RGBA color on {label}"
+                ) from error
+            if len(rgba) != 4 or any(
+                not isfinite(value) or not 0 <= value <= 1 for value in rgba
+            ):
+                raise ValueError(
+                    f"URDF material RGBA color on {label} must contain "
+                    "four finite values between zero and one"
+                )
 
 
 def resolve_mesh_path(
@@ -50,6 +90,7 @@ def resolved_urdf(urdf_path: Path, search_paths: Sequence[Path] = ()) -> Iterato
     root = tree.getroot()
     if root.tag != "robot":
         raise ValueError("The selected file must contain a URDF <robot> element")
+    validate_visual_materials(root)
     for visual in root.findall("./link/visual"):
         mesh = visual.find("./geometry/mesh")
         if mesh is None:

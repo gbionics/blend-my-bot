@@ -39,6 +39,9 @@ jobs:
           blender --background --factory-startup --python-exit-code 1 \
             --python tests/blender_collada.py -- \
             dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+          blender --background --factory-startup --python-exit-code 1 \
+            --python tests/blender_materials.py -- \
+            dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: blend-my-bot-blender-5.0-linux-x64

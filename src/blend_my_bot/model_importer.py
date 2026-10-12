@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+import xml.etree.ElementTree as ET
 
 import bpy
 import idyntree.bindings as idyntree
@@ -8,6 +9,42 @@ import numpy as np
 from .blender_model import BlenderModel
 from .collada_importer import import_collada
 from .link import Link
+from .urdf_paths import validate_visual_materials
+
+
+def apply_urdf_color(
+    mesh: bpy.types.Object,
+    visual: idyntree.SolidShape,
+    materials: dict[tuple[float, ...], bpy.types.Material],
+) -> None:
+    if any(mesh.data.materials):
+        return
+    source = visual.getMaterial()
+    if not source.hasColor():
+        return
+    rgba = tuple(float(value) for value in source.color().toNumPy().ravel())
+    if (
+        len(rgba) != 4
+        or not all(np.isfinite(rgba))
+        or any(not 0 <= value <= 1 for value in rgba)
+    ):
+        raise ValueError(f"Invalid URDF material RGBA color for '{mesh.name}'")
+    if rgba not in materials:
+        material = bpy.data.materials.new(f"{mesh.name} URDF")
+        if material.node_tree is None:
+            material.use_nodes = True
+        shader = material.node_tree.nodes.get("Principled BSDF")
+        if shader is None:
+            raise RuntimeError("Blender did not create a Principled material node")
+        material.diffuse_color = rgba
+        shader.inputs["Base Color"].default_value = rgba
+        shader.inputs["Alpha"].default_value = rgba[3]
+        material.surface_render_method = "DITHERED"
+        materials[rgba] = material
+    mesh.data.materials.clear()
+    mesh.data.materials.append(materials[rgba])
+    mesh.data.polygons.foreach_set("material_index", [0] * len(mesh.data.polygons))
+    mesh.color = rgba
 
 
 @dataclass
@@ -32,6 +69,7 @@ class ModelImporter:
             BlenderModel: Model of the robot in blender
         """
 
+        validate_visual_materials(ET.parse(urdf_path).getroot())
         kindyn = ModelImporter.build_kindyn(urdf_path, joints_list)
         model_loader_geometry = idyntree.ModelLoader()
         if not model_loader_geometry.loadModelFromFile(urdf_path):
@@ -91,6 +129,7 @@ class ModelImporter:
 
         visuals = model_geometry.visualSolidShapes().getLinkSolidShapes()
         links = {}
+        materials = {}
         existing_objects = bpy.context.scene.objects.keys()
         # set zero position
         kindyn.setRobotState(
@@ -158,6 +197,8 @@ class ModelImporter:
                 for part_index, mesh in enumerate(imported_meshes):
                     part_suffix = "" if part_index == 0 else f"_part_{part_index}"
                     mesh.name = mesh_name + part_suffix
+                    if not reuse_existing:
+                        apply_urdf_color(mesh, link_visual, materials)
                     mesh.scale = (
                         link_visual.asExternalMesh().getScale().toNumPy().flatten()
                     )
