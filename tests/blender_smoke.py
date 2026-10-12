@@ -176,8 +176,13 @@ with TemporaryDirectory(prefix="blend-my-bot-smoke-") as directory:
     bpy.ops.blend_my_bot.remove_search_path(index=0)
     assert bpy.ops.blend_my_bot.import_available_robot() == {"FINISHED"}
     selected = bpy.data.collections["my_robot_model"]
+    assert not hasattr(settings, "create_rig")
     assert len(selected.objects) == 2
+    assert all(obj.type == "MESH" and obj.parent is None for obj in selected.objects)
+    assert not hasattr(addon, "ik")
     assert selected["blend_my_bot_urdf"] == str(variants[1].resolve())
+    assert bpy.ops.blend_my_bot.import_available_robot() == {"FINISHED"}
+    assert len(bpy.data.collections["my_robot_model.001"].objects) == 2
 
     with patch.dict(os.environ, {"RRU_ADDITIONAL_PATHS": directory}):
         assert bpy.ops.blend_my_bot.refresh_catalog() == {"FINISHED"}
@@ -308,4 +313,5 @@ with TemporaryDirectory(prefix="blend-my-bot-smoke-") as directory:
     assert bpy.ops.blend_my_bot.import_robot(
         filepath=str(fixture), robot_name="Test Robot"
     ) == {"FINISHED"}
+    assert bpy.context.object.type == "MESH"
     print("BLEND_MY_BOT_SMOKE_OK")

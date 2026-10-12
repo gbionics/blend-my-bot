@@ -115,7 +115,13 @@ class ModelImporter:
                 print(f"mesh_path {mesh_path}")
                 suffix = "" if visual_index == 0 else f"_{visual_index}"
                 mesh_name = f"{model_name}_{link_name}_mesh{suffix}"
-                if collection is None and mesh_name in existing_objects:
+                existing = bpy.data.objects.get(mesh_name)
+                reuse_existing = (
+                    collection is None
+                    and existing is not None
+                    and mesh_name in existing_objects
+                )
+                if reuse_existing:
                     print(f"Using existing mesh {mesh_name}")
                     mesh = bpy.data.objects[mesh_name]
                 elif mesh_path.lower().endswith(".obj"):
@@ -137,11 +143,9 @@ class ModelImporter:
                 w_H_l = kindyn.getWorldTransform(link_name)
                 w_H_g = w_H_l * l_H_g
                 imported_meshes = (
-                    [mesh]
-                    if collection is None and mesh_name in existing_objects
-                    else list(bpy.context.selected_objects)
+                    [mesh] if reuse_existing else list(bpy.context.selected_objects)
                 )
-                if collection is None and mesh_name in existing_objects:
+                if reuse_existing:
                     part_index = 1
                     while f"{mesh_name}_part_{part_index}" in existing_objects:
                         imported_meshes.append(
@@ -165,4 +169,10 @@ class ModelImporter:
                         collection.objects.link(mesh)
                     key = link_name + suffix + part_suffix
                     links[key] = Link(link_name, mesh, l_H_g)
+                    if collection is not None:
+                        mesh["blend_my_bot_link"] = link_name
+                        mesh["blend_my_bot_visual_key"] = key
+                        mesh["blend_my_bot_link_H_geometry"] = (
+                            l_H_g.asHomogeneousTransform().toNumPy().ravel().tolist()
+                        )
         return links

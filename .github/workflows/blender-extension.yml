@@ -20,18 +20,21 @@ jobs:
           echo "dfbc127a7d28f9c2175b23bf9d6701b2855f31eedfb391f9a6e60adb24572846  blender.tar.xz" | sha256sum --check
           tar -xf blender.tar.xz
           echo "$PWD/blender-4.2.9-linux-x64" >> "$GITHUB_PATH"
-      - name: Test path resolution
+      - name: Test path resolution, discovery and motion format
         run: |
-          python -m pip install resolve-robotics-uri-py==0.5.1
+          python -m pip install resolve-robotics-uri-py==0.5.1 numpy
           python -m unittest discover -s tests -p 'test_*.py'
       - name: Build self-contained extension
         run: python tools/build_extension.py
-      - name: Test installation and robot import
+      - name: Test installation, robot imports and motion loading
         env:
           BLENDER_USER_RESOURCES: ${{ runner.temp }}/blend-my-bot-profile
         run: |
           blender --background --factory-startup --python-exit-code 1 \
             --python tests/blender_smoke.py -- \
+            dist/blend_my_bot-0.1.0-blender-4.2-linux-x64.zip
+          blender --background --factory-startup --python-exit-code 1 \
+            --python tests/blender_motion.py -- \
             dist/blend_my_bot-0.1.0-blender-4.2-linux-x64.zip
       - uses: actions/upload-artifact@v4
         with:

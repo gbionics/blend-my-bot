@@ -6,10 +6,12 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 from time import perf_counter
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
+import numpy as np
 
 arguments = sys.argv[sys.argv.index("--") + 1 :]
 if len(arguments) != 2:
@@ -51,12 +53,15 @@ with TemporaryDirectory(prefix="blend-my-bot-models-") as directory:
     settings = bpy.context.window_manager.blend_my_bot_catalog
     for entry in entries:
         start = perf_counter()
-        row = {"model": str(entry.urdf_path.relative_to(models_root))}
+        row = {
+            "model": str(entry.urdf_path.relative_to(models_root)),
+        }
         original = entry.urdf_path.read_bytes()
         previous_objects = set(bpy.data.objects)
         previous_collections = set(bpy.data.collections)
         previous_meshes = set(bpy.data.meshes)
         previous_materials = set(bpy.data.materials)
+        previous_actions = set(bpy.data.actions)
         try:
             try:
                 with addon.resolved_urdf(entry.urdf_path, [models_root]):
@@ -65,7 +70,20 @@ with TemporaryDirectory(prefix="blend-my-bot-models-") as directory:
                 row["repository_path_resolution"] = str(error)
             settings.package = str(entry.package_directory)
             settings.urdf = str(entry.urdf_path)
-            assert bpy.ops.blend_my_bot.import_available_robot() == {"FINISHED"}
+            imported = []
+            build_model = addon.ModelImporter.build_model
+
+            def capture_model(*args, **kwargs):
+                model = build_model(*args, **kwargs)
+                imported.append(model)
+                return model
+
+            with patch.object(
+                addon.ModelImporter, "build_model", side_effect=capture_model
+            ):
+                assert bpy.ops.blend_my_bot.import_available_robot() == {"FINISHED"}
+            assert len(imported) == 1
+            model = imported[0]
             created = set(bpy.data.collections) - previous_collections
             assert (
                 len(created) == 1
@@ -73,15 +91,17 @@ with TemporaryDirectory(prefix="blend-my-bot-models-") as directory:
             collection = created.pop()
             assert collection["blend_my_bot_urdf"] == str(entry.urdf_path.resolve())
             visual_count = len(ET.fromstring(original).findall("./link/visual"))
-            assert len(collection.objects) >= visual_count
+            meshes = [obj for obj in collection.objects if obj.type == "MESH"]
+            assert len(meshes) >= visual_count
             assert all(
-                obj.type == "MESH" and len(obj.data.polygons) > 0
-                for obj in collection.objects
-            ), "Imported robot contains an empty or non-mesh object"
+                len(obj.data.polygons) > 0 for obj in meshes
+            ), "Imported robot contains an empty mesh"
+            assert len(meshes) == len(collection.objects)
+            assert all(obj.parent is None for obj in meshes)
             bpy.context.view_layer.update()
             corners = [
                 obj.matrix_world @ Vector(corner)
-                for obj in collection.objects
+                for obj in meshes
                 for corner in obj.bound_box
             ]
             dimensions = [
@@ -90,10 +110,34 @@ with TemporaryDirectory(prefix="blend-my-bot-models-") as directory:
                 for axis in range(3)
             ]
             assert all(0.001 < value < 100 for value in dimensions), dimensions
+            scales = {key: tuple(link.mesh.scale) for key, link in model.links.items()}
+            base = Matrix.Translation((0.3, -0.2, 0.1)) @ Matrix.Rotation(0.2, 4, "Z")
+            positions = np.linspace(-0.1, 0.1, model.kindyn.getNrOfDegreesOfFreedom())
+            bpy.context.scene.frame_set(7)
+            model.update(np.array(base), positions)
+            bpy.context.view_layer.update()
+            pose_error = 0
+            for key, link in model.links.items():
+                transform = (
+                    model.kindyn.getWorldTransform(link.name) * link.link_H_geometry
+                )
+                expected_matrix = Matrix(
+                    transform.asHomogeneousTransform().toNumPy()
+                ) @ Matrix.Diagonal((*scales[key], 1))
+                pose_error = max(
+                    pose_error,
+                    max(
+                        abs(link.mesh.matrix_world[i][j] - expected_matrix[i][j])
+                        for i in range(4)
+                        for j in range(4)
+                    ),
+                )
+            assert pose_error < 1e-5, f"FK matrix error {pose_error}"
             row.update(
                 import_status="PASS",
                 visuals=visual_count,
-                objects=len(collection.objects),
+                meshes=len(meshes),
+                fk_max_error=pose_error,
                 dimensions_m=[round(value, 3) for value in dimensions],
             )
         except (
@@ -116,6 +160,9 @@ with TemporaryDirectory(prefix="blend-my-bot-models-") as directory:
             for material in set(bpy.data.materials) - previous_materials:
                 if material.users == 0:
                     bpy.data.materials.remove(material)
+            for action in set(bpy.data.actions) - previous_actions:
+                assert action.users == 0
+                bpy.data.actions.remove(action)
             row["seconds"] = round(perf_counter() - start, 2)
             results.append(row)
             print("BMB_REAL_RESULT " + json.dumps(row), flush=True)

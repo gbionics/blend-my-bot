@@ -29,15 +29,18 @@ class BlenderModel:
             s (np.ndarray): Joint positions
         """
 
-        self._set_robot_state(w_H_b, s)
-        for link in self.links.values():
-            w_H_l = self.kindyn.getWorldTransform(link.name)
-            l_H_g = link.link_H_geometry
-            w_H_g = w_H_l * l_H_g
+        for key, w_H_g in self.visual_transforms(w_H_b, s):
+            link = self.links[key]
             link.mesh.location = w_H_g.getPosition().toNumPy().flatten()
             link.mesh.rotation_quaternion = w_H_g.getRotation().asQuaternion().toNumPy()
             link.mesh.keyframe_insert(data_path="location", index=-1)
             link.mesh.keyframe_insert(data_path="rotation_quaternion", index=-1)
+
+    def visual_transforms(self, w_H_b: np.ndarray, s: np.ndarray):
+        """Evaluate visual FK without changing the scene or adding keyframes."""
+        self._set_robot_state(w_H_b, s)
+        for key, link in self.links.items():
+            yield key, self.kindyn.getWorldTransform(link.name) * link.link_H_geometry
 
     def _set_robot_state(self, w_H_b, s):
         """Set the robot state in the kindyn model
@@ -47,10 +50,13 @@ class BlenderModel:
             s (np.ndarray): Joint positions
         """
 
-        self.kindyn.setRobotState(
+        if not self.kindyn.setRobotState(
             w_H_b,
             s,
             self.zero_base_velocity,
             self.zero_joint_velocity,
             self.zero_gravity,
-        )
+        ):
+            raise ValueError(
+                "Cannot set robot state; check base transform and joint positions"
+            )

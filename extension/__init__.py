@@ -17,6 +17,7 @@ from bpy_extras.io_utils import ImportHelper
 from .blend_my_bot import ModelImporter
 from .blend_my_bot.robot_catalog import RobotDescription, iter_robot_descriptions
 from .blend_my_bot.urdf_paths import resolved_urdf
+from . import motion
 
 logger = logging.getLogger(__name__)
 SCAN_TIME_SLICE = 0.02
@@ -284,30 +285,69 @@ class BMB_OT_RemoveSearchPath(bpy.types.Operator):
 
 
 def import_robot(
-    context, filepath: str, robot_name: str, additional_search_paths=()
+    context,
+    filepath: str,
+    robot_name: str,
+    additional_search_paths=(),
 ) -> bpy.types.Collection:
     search_paths = [*package_search_paths(context), *additional_search_paths]
     source = Path(bpy.path.abspath(filepath)).expanduser().resolve()
     with resolved_urdf(source, search_paths) as resolved:
-        collection = bpy.data.collections.new(robot_name.strip() or source.stem)
-        context.scene.collection.children.link(collection)
         previous_objects = set(bpy.data.objects)
         previous_meshes = set(bpy.data.meshes)
+        previous_materials = set(bpy.data.materials)
+        previous_collections = set(bpy.data.collections)
+        selected = list(context.selected_objects)
+        active = context.view_layer.objects.active
+        mode = active.mode if active else "OBJECT"
+        completed = False
         try:
+            name = robot_name.strip() or source.stem
+            if mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            collection = bpy.data.collections.new(name)
+            context.scene.collection.children.link(collection)
             model = ModelImporter.build_model(
                 collection.name, str(resolved), collection=collection
             )
             if not model.links:
                 raise ValueError("The robot has no supported visual meshes")
             collection["blend_my_bot_urdf"] = str(source)
-        except (ValueError, RuntimeError, OSError):
-            for obj in set(bpy.data.objects) - previous_objects:
-                bpy.data.objects.remove(obj, do_unlink=True)
-            for mesh in set(bpy.data.meshes) - previous_meshes:
-                if mesh.users == 0:
-                    bpy.data.meshes.remove(mesh)
-            bpy.data.collections.remove(collection)
-            raise
+            tree = ET.parse(resolved)
+            for link in tree.getroot().findall("link"):
+                for element in list(link):
+                    if element.tag in {"visual", "collision"}:
+                        link.remove(element)
+            collection["blend_my_bot_model_xml"] = ET.tostring(
+                tree.getroot(), encoding="unicode"
+            )
+            collection["blend_my_bot_visual_count"] = len(model.links)
+            collection["blend_my_bot_joint_count"] = (
+                model.kindyn.getNrOfDegreesOfFreedom()
+            )
+            context.scene.blend_my_bot_motion.robot = collection
+            completed = True
+        finally:
+            if not completed:
+                if context.object and context.object.mode != "OBJECT":
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                for obj in set(bpy.data.objects) - previous_objects:
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                for data, previous in (
+                    (bpy.data.meshes, previous_meshes),
+                    (bpy.data.materials, previous_materials),
+                ):
+                    for block in set(data) - previous:
+                        if block.users == 0:
+                            data.remove(block)
+                for collection in set(bpy.data.collections) - previous_collections:
+                    bpy.data.collections.remove(collection)
+                bpy.ops.object.select_all(action="DESELECT")
+                for obj in selected:
+                    obj.select_set(True)
+                context.view_layer.objects.active = active
+                if mode != "OBJECT":
+                    bpy.ops.object.mode_set(mode=mode)
     return collection
 
 
@@ -322,6 +362,9 @@ class BMB_OT_ImportRobot(bpy.types.Operator, ImportHelper):
         name="Robot name", description="Defaults to the filename"
     )
     package_directory: StringProperty(options={"HIDDEN"})
+
+    def draw(self, context):
+        self.layout.prop(self, "robot_name")
 
     def execute(self, context):
         try:
@@ -364,7 +407,8 @@ class BMB_PT_RobotPanel(bpy.types.Panel):
             "preferences.addon_show", text="Package Search Folders"
         )
         operator.module = __package__
-        self.layout.label(text="OBJ/STL visuals; no rig generated")
+        self.layout.label(text="OBJ/STL visuals; mesh-only import")
+        motion.draw_motion(self.layout, context)
 
 
 def import_menu(self, context):
@@ -389,12 +433,14 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.WindowManager.blend_my_bot_catalog = PointerProperty(type=BMB_Catalog)
     bpy.types.TOPBAR_MT_file_import.append(import_menu)
+    motion.register()
 
 
 def unregister():
     global _catalog, _package_items, _urdf_items
     if _active_scan is not None:
         _active_scan.cancel(bpy.context)
+    motion.unregister()
     bpy.types.TOPBAR_MT_file_import.remove(import_menu)
     del bpy.types.WindowManager.blend_my_bot_catalog
     for cls in reversed(classes):
