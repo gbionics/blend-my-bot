@@ -29,7 +29,8 @@ For the Python scripting API:
 > Blender installation rather than assuming all Blender 4 releases use the same version.
 
 > [!NOTE]
-> This library does not define the rig of the robot. For this, you can use a library such as [`blender-robotics-utils`](https://github.com/robotology/blender-robotics-utils).
+> Robots are imported as meshes only. No armature or IK is generated; recorded
+> motion is baked directly onto the meshes for normal Blender playback.
 
 ## 💾 Installation
 
@@ -98,12 +99,77 @@ manually if auto-save is disabled. Relative mesh paths resolve against the URDF
 directory, not the shell's working directory. Absolute paths and local `file://`
 URIs are also supported. The original URDF is never modified.
 
-**Current scope:** static URDF import with OBJ/STL visual meshes, including
+#### Load recorded robot motion
+
+1. Import the matching robot URDF. Imports create only meshes: no rig or IK.
+2. In the **Blend My Bot** sidebar's **Robot Motion** section, select its
+   **Robot** collection. The most recently imported robot is selected automatically.
+3. Click **Load Robot Motion (.npy)** and choose your file.
+4. Enable **I Trust This File** only if you trust its source. NumPy object files
+   contain pickle payloads, which can execute Python code.
+5. Select the quaternion order and start frame, then load. **wxyz (scalar first)**
+   is the default and the convention used by `dataset_00.npy`.
+6. Play the timeline or save the `.blend` normally. The motion is baked onto
+   mesh location/quaternion channels; playback needs no live Python solver.
+
+For the supplied `dataset_00.npy`, import
+`gene/robots/gene01_paxini_hand/model.urdf`. Its 86 named joints match that model.
+The file contains **1,228 samples at 50 FPS**, including the last sample, spanning
+**24.54 seconds**. With the default start frame, keyframes run from **1 to 1228**.
+Other Gene variants lack some recorded joints and are rejected rather than
+silently applying the wrong motion.
+
+**Use Motion FPS** changes the scene frame rate to match the recording; this
+also affects other animation in the scene. Disable it to keep the current scene
+FPS: fractional keyframe positions preserve the recording's duration.
+The playback range is extended to include the clip without shrinking an existing
+range. **Replace Existing Animation** is disabled by default. Enable it to
+replace the selected robot's active actions; other robots and shared old actions
+are not modified. Drivers, NLA tracks, constraints and parented meshes must be
+removed explicitly before motion import.
+
+The supported file is a scalar NumPy object containing a dictionary:
+
+```python
+{
+    "joints_list": ["joint_a", "joint_b"],  # column order, not URDF order
+    "fps": 50.0,                           # scalar or one-element array
+    "joint_positions": ...,               # (N, J), radians/metres
+    "root_position": ...,                 # (N, 3), world position in metres
+    "root_quaternion": ...,               # (N, 4), unit quaternions
+    "duration": ...,                      # optional: (N - 1) / fps
+}
+```
+
+`root_position`/`root_quaternion` describe the URDF root link's world pose.
+The loader maps every recorded joint by name and validates names, dimensions,
+finite values, quaternion lengths, FPS and duration before adding animation.
+Unrecorded joints use the URDF zero position, with a warning. Recorded values
+are visualized as supplied; joint limits and mimic coupling are not enforced.
+Optional `body_links_list`, `body_links_pos_w` and `body_links_quat_w` are not
+needed for playback: the selected URDF and recorded joint values provide FK.
+The supplied recording has small differences between its recorded body poses
+and reconstructed FK, mainly in the fingers. Playback intentionally uses **joint
+values plus URDF FK**, not the optional recorded world poses.
+
+All visual parts, visual origins, mesh scales and materials are retained.
+Linear mesh-transform interpolation is used between samples, with quaternion
+sign continuity to prevent flips. This is motion playback, not retargeting,
+collision checking or physics simulation. Loading may take a few seconds;
+failed imports keep the robot's prior actions and scene timing.
+
+New imports save their kinematic description and mesh bindings into the `.blend`,
+so motion can be loaded after reopening without the original URDF or mesh files.
+Reimport older collections with this version before loading motion; existing
+rigged scenes are not automatically converted. NumPy pickle archives also
+require a runtime compatible with their producer's NumPy version.
+
+**Current scope:** URDF import with OBJ/STL visual meshes, including
 multiple visuals per link. Primitive visuals and other mesh formats produce
 explicit errors. Mesh files referenced by collision geometry must also exist.
-No rig is generated. Trajectory-file import and a joint-selection UI are not
-part of this first extension; animation remains available through the Python
-API below. Windows and macOS builds are not yet provided because this release
+Recorded `.npy` motion loading is supported as described above; animation is
+also available through the Python API below. Windows and macOS builds are not
+yet provided because this release
 uses Linux iDynTree wheels.
 
 #### Build the extension from source
@@ -126,10 +192,13 @@ Blender 4.2 or later is required.
 To validate locally without changing your normal Blender preferences:
 
 ```bash
-python -m pip install resolve-robotics-uri-py==0.5.1
+python -m pip install resolve-robotics-uri-py==0.5.1 numpy
 python -m unittest discover -s tests -p 'test_*.py'
 BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
   --factory-startup --python-exit-code 1 --python tests/blender_smoke.py -- \
+  dist/blend_my_bot-0.1.0-blender-4.2-linux-x64.zip
+BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
+  --factory-startup --python-exit-code 1 --python tests/blender_motion.py -- \
   dist/blend_my_bot-0.1.0-blender-4.2-linux-x64.zip
 ```
 
@@ -137,6 +206,10 @@ Use your actual ZIP filename. The smoke test installs the extension into a
 temporary repository, imports a test fixture twice, checks geometry and error handling,
 tests package discovery and selected-URDF imports, tests the scripting API, and
 disables/re-enables the extension.
+The motion test checks named-joint mapping, quaternion conventions, exact sample
+poses and timing, the final sample, multiple visual parts, long/renamed mesh
+names, independent instances, replacement protection, rollback and save/reopen.
+It exercises real Blender operators in background mode, not visual GUI playback.
 
 To test a local robot model repository through the package browser:
 
@@ -146,9 +219,16 @@ BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
   dist/blend_my_bot-0.1.0-blender-5.2-linux-x64.zip /path/to/gb-gene-models
 ```
 
-This imports all discovered URDFs under the repository's `share/` directory,
-checks mesh resolution, object counts, and bounding dimensions, and cleans up
-each imported robot before testing the next. Source URDFs are checked for changes.
+This imports all discovered URDFs under the repository's `share/` directory in
+mesh-only mode, checks mesh resolution, counts, bounding dimensions and posed FK
+within `1e-5`, and cleans up each imported robot
+before testing the next. Source URDFs are checked for changes.
+
+To test the full supplied recording, run `tests/blender_motion.py` with the ZIP
+path followed by `dataset_00.npy` and `/path/to/gb-gene-models`, using the same
+isolated-profile Blender command. This bakes all 1,228 samples on Gene's Paxini
+model, verifies representative poses against FK, and reports differences from
+the optional recorded body poses without treating them as the playback source.
 
 ### Advanced: existing Conda scripting setup
 
@@ -258,6 +338,13 @@ for k in range(number_of_frames):
 
 Have a look at the `examples` folder for more examples.
 
+Within an installed extension, use its namespaced library from Blender's Python
+console (the repository identifier may differ):
+
+```python
+from bl_ext.user_default.blend_my_bot.blend_my_bot import ModelImporter
+```
+
 ### Motion through the existing Python example
 
 `examples/jumping/main.py` loads the iCub `iCubGazeboV2_7` model, selects its
@@ -285,8 +372,9 @@ To run the unchanged script:
 
 Installing only the extension does not make the unchanged script's imports
 available: its library lives under Blender's extension namespace rather than
-the top-level `blend_my_bot`, and it does not bundle SciPy. Motion-file loading
-in the extension panel remains a separate feature.
+the top-level `blend_my_bot`, and it does not bundle SciPy. The panel's new
+loader accepts the named `.npy` dictionary format above, not this older unnamed
+pickle format.
 
 Only load pickle files you trust: deserialization can execute Python code.
 
