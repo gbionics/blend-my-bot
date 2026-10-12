@@ -296,6 +296,7 @@ def import_robot(
         previous_objects = set(bpy.data.objects)
         previous_meshes = set(bpy.data.meshes)
         previous_materials = set(bpy.data.materials)
+        previous_images = set(bpy.data.images)
         previous_collections = set(bpy.data.collections)
         selected = list(context.selected_objects)
         active = context.view_layer.objects.active
@@ -336,6 +337,7 @@ def import_robot(
                 for data, previous in (
                     (bpy.data.meshes, previous_meshes),
                     (bpy.data.materials, previous_materials),
+                    (bpy.data.images, previous_images),
                 ):
                     for block in set(data) - previous:
                         if block.users == 0:
@@ -407,7 +409,7 @@ class BMB_PT_RobotPanel(bpy.types.Panel):
             "preferences.addon_show", text="Package Search Folders"
         )
         operator.module = __package__
-        self.layout.label(text="OBJ/STL visuals; mesh-only import")
+        self.layout.label(text="OBJ/STL/DAE visuals; mesh-only import")
         motion.draw_motion(self.layout, context)
 
 

@@ -140,14 +140,29 @@ class UrdfPathsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "primitives"):
             with urdf_paths.resolved_urdf(source):
                 self.fail("Primitive was accepted")
-        (self.package / "part.dae").write_text("")
+        (self.package / "part.fbx").write_text("")
         source.write_text(
             '<robot name="test"><link name="base"><visual><geometry>'
-            '<mesh filename="part.dae"/></geometry></visual></link></robot>'
+            '<mesh filename="part.fbx"/></geometry></visual></link></robot>'
         )
         with self.assertRaisesRegex(ValueError, "format"):
             with urdf_paths.resolved_urdf(source):
                 self.fail("Unsupported format was accepted")
+
+    def test_dae_visuals_are_resolved_without_modifying_the_source(self):
+        mesh = self.package / "part.dae"
+        mesh.write_text("<COLLADA/>")
+        source = self.package / "robot.urdf"
+        original = (
+            '<robot name="test"><link name="base"><visual><geometry>'
+            '<mesh filename="part.dae" scale="2 3 4"/></geometry></visual></link></robot>'
+        )
+        source.write_text(original)
+        with urdf_paths.resolved_urdf(source) as resolved:
+            visual = ET.parse(resolved).find("./link/visual/geometry/mesh")
+            self.assertEqual(visual.get("filename"), str(mesh))
+            self.assertEqual(visual.get("scale"), "2 3 4")
+        self.assertEqual(source.read_text(), original)
 
     def test_collision_mesh_paths_are_resolved(self):
         source = self.package / "robot.urdf"

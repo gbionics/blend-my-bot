@@ -22,7 +22,7 @@ jobs:
           echo "$PWD/blender-5.0.1-linux-x64" >> "$GITHUB_PATH"
       - name: Test path resolution, discovery and motion format
         run: |
-          python -m pip install resolve-robotics-uri-py==0.5.1 numpy==1.26.4
+          python -m pip install resolve-robotics-uri-py==0.5.1 numpy==1.26.4 pycollada==0.9.3
           python -m unittest discover -s tests -p 'test_*.py'
       - name: Build self-contained extension
         run: python tools/build_extension.py
@@ -35,6 +35,9 @@ jobs:
             dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
           blender --background --factory-startup --python-exit-code 1 \
             --python tests/blender_motion.py -- \
+            dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+          blender --background --factory-startup --python-exit-code 1 \
+            --python tests/blender_collada.py -- \
             dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
       - uses: actions/upload-artifact@v4
         with:

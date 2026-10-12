@@ -6,6 +6,7 @@ import idyntree.bindings as idyntree
 import numpy as np
 
 from .blender_model import BlenderModel
+from .collada_importer import import_collada
 from .link import Link
 
 
@@ -107,7 +108,7 @@ class ModelImporter:
                 if not link_visual.isExternalMesh():
                     raise ValueError(
                         f"Link '{link_name}' has an unsupported visual primitive; "
-                        "use OBJ or STL meshes"
+                        "use OBJ, STL or DAE meshes"
                     )
                 mesh_path = (
                     link_visual.asExternalMesh().getFileLocationOnLocalFileSystem()
@@ -134,6 +135,8 @@ class ModelImporter:
                     result = bpy.ops.wm.stl_import(filepath=mesh_path)
                     if result != {"FINISHED"} or not bpy.context.selected_objects:
                         raise ValueError(f"No mesh objects imported from {mesh_path}")
+                elif mesh_path.lower().endswith(".dae"):
+                    import_collada(mesh_path)
                 else:
                     raise ValueError(
                         f"Extension {mesh_path.split('.')[-1]} not supported"

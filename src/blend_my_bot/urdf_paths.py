@@ -54,13 +54,13 @@ def resolved_urdf(urdf_path: Path, search_paths: Sequence[Path] = ()) -> Iterato
         mesh = visual.find("./geometry/mesh")
         if mesh is None:
             raise ValueError(
-                "Visual primitives are not yet supported; use OBJ/STL meshes"
+                "Visual primitives are not yet supported; use OBJ/STL/DAE meshes"
             )
         filename = mesh.get("filename")
         if not filename:
             raise ValueError("A visual mesh is missing its filename")
         path = resolve_mesh_path(filename, urdf_path.resolve().parent, search_paths)
-        if path.suffix.lower() not in {".obj", ".stl"}:
+        if path.suffix.lower() not in {".obj", ".stl", ".dae"}:
             raise ValueError(f"Unsupported visual mesh format: {path.suffix}")
         mesh.set("filename", str(path))
     for mesh in root.findall("./link/collision/geometry/mesh"):
