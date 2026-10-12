@@ -12,6 +12,7 @@ def make_collada(
     instances=True,
     concave=False,
     lines=False,
+    zero_normals=False,
 ):
     document = collada.Collada()
     document.assetInfo.unitname = "millimeter"
@@ -27,6 +28,8 @@ def make_collada(
         [[1, 1, 1], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, -1, 0]], dtype=float
     )
     normals /= np.linalg.norm(normals, axis=1)[:, None]
+    if zero_normals:
+        normals[0] = 0
     uv = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]], dtype=float)
     sources = [
         collada.source.FloatSource("positions", positions, ("X", "Y", "Z")),

@@ -15,6 +15,7 @@ BLENDER_TESTED_DESCRIPTIONS = (
     "bolt_description",
     "cassie_description",
     "g1_description",
+    "go2_description",
 )
 MANIFEST_NAME = "robot.json"
 PROCESS_STOP_TIMEOUT = 5

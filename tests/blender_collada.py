@@ -147,6 +147,26 @@ with TemporaryDirectory(prefix="blend-my-bot-collada-") as directory:
     line = importer.import_collada(str(lines))[2]
     assert len(line.data.vertices) == 2
     assert len(line.data.edges) == 1 and not line.data.polygons
+    zero_sources = []
+    repaired_normals = {}
+    for reflection in (False, True):
+        zero_path = root / f"zero-normals-{reflection}.dae"
+        make_collada(
+            zero_path, reflected=reflection, instances=False, zero_normals=True
+        )
+        zero_sources.append(zero_path)
+        mesh = importer.import_collada(str(zero_path))[0]
+        normals = np.array([normal.vector for normal in mesh.data.corner_normals])
+        zero_index = 2 if reflection else 0
+        np.testing.assert_allclose(
+            normals[zero_index], mesh.data.polygons[0].normal, atol=1e-4
+        )
+        assert np.all(np.isfinite(normals))
+        np.testing.assert_allclose(np.linalg.norm(normals, axis=1), 1, atol=1e-4)
+        valid_index = 1
+        expected = [0, -1 if reflection else 1, 0]
+        np.testing.assert_allclose(normals[valid_index], expected, atol=1e-4)
+        repaired_normals[mesh.name] = normals
     duplicate = addon.import_robot(bpy.context, str(urdf), "COLLADA")
     assert len(duplicate.objects) == 8
     assert set(duplicate.objects).isdisjoint(collection.objects)
@@ -242,6 +262,8 @@ with TemporaryDirectory(prefix="blend-my-bot-collada-") as directory:
     concave.unlink()
     reflected.unlink()
     lines.unlink()
+    for path in zero_sources:
+        path.unlink()
     bpy.ops.wm.open_mainfile(filepath=str(saved))
     loaded = bpy.data.collections[collection_name]
     restored = addon.motion.restore_model(loaded)
@@ -263,6 +285,11 @@ with TemporaryDirectory(prefix="blend-my-bot-collada-") as directory:
         )
         assert_vertices(mesh, vertices @ matrix[:3, :3].T + matrix[:3, 3])
     assert any(image.packed_file for image in bpy.data.images)
+    for name, expected in repaired_normals.items():
+        normals = [
+            normal.vector for normal in bpy.data.objects[name].data.corner_normals
+        ]
+        np.testing.assert_allclose(normals, expected, atol=1e-4)
     assert all(
         mesh.animation_data and mesh.animation_data.action for mesh in loaded.objects
     )

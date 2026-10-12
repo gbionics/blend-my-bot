@@ -258,18 +258,25 @@ with TemporaryDirectory(prefix="blend-my-bot-online-") as directory:
 
     if any(
         flag in arguments
-        for flag in ("--download", "--download-dae", "--download-colors")
+        for flag in (
+            "--download",
+            "--download-dae",
+            "--download-colors",
+            "--download-go2",
+        )
     ):
         assert bpy.app.online_access, "Use Blender --online-mode for real downloads"
         dae_robots = (
             {"anymal_b_description"} if "--download-dae" in arguments else set()
         )
         color_robots = {"g1_description"} if "--download-colors" in arguments else set()
+        go2_robots = {"go2_description"} if "--download-go2" in arguments else set()
         real_cache = root / "real-cache"
         with patch.object(online, "cache_directory", return_value=real_cache):
             for entry in online.catalog_robots():
-                if entry.identifier not in dae_robots | color_robots and not (
-                    "--download" in arguments and entry.blender_tested
+                if (
+                    entry.identifier not in dae_robots | color_robots | go2_robots
+                    and not ("--download" in arguments and entry.blender_tested)
                 ):
                     continue
                 settings.robot = entry.identifier
@@ -286,6 +293,13 @@ with TemporaryDirectory(prefix="blend-my-bot-online-") as directory:
                     for mesh in collection.objects
                 )
                 model = addon.motion.restore_model(collection)
+                if entry.identifier == "go2_description":
+                    assert model.kindyn.getNrOfDegreesOfFreedom() == 12
+                    for mesh in collection.objects:
+                        normals = np.array(
+                            [normal.vector for normal in mesh.data.corner_normals]
+                        )
+                        assert np.all(np.isfinite(normals)), mesh.name
                 if entry.identifier == "g1_description":
                     source = ET.parse(
                         online.cached_robot(real_cache, entry.identifier).urdf_path

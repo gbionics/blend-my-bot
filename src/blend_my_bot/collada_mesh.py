@@ -1,8 +1,11 @@
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 
 import collada
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 AXIS_ROTATIONS = {
     "Z_UP": np.eye(3),
@@ -92,9 +95,8 @@ def decode_primitive(geometry, primitive, matrix) -> ColladaPart:
         normals = np.asarray(original.normal[normal_indices], dtype=float) @ inverse
         _finite(normals, "normals")
         lengths = np.linalg.norm(normals, axis=1)
-        if np.any(lengths == 0):
-            raise ValueError("DAE normals must be nonzero")
-        normals /= lengths[:, None]
+        # Blender uses zero custom normals as sentinels for geometry-derived normals.
+        np.divide(normals, lengths[:, None], out=normals, where=lengths[:, None] != 0)
     texcoords = []
     for coordinates, uv_indices in zip(
         original.texcoordset, original.texcoord_indexset
@@ -164,6 +166,11 @@ def read_collada(path: str | Path) -> tuple[ColladaPart, ...]:
             geometries = (
                 geometry.bind(np.eye(4), materials) for geometry in document.geometries
             )
+        # pycollada replaces NaN source entries with zeros before exposing arrays.
+        for source in document.xmlnode.iter(collada.common.tag("float_array")):
+            values = np.fromstring(source.text or "", dtype=float, sep=" ")
+            if not np.all(np.isfinite(values)):
+                raise ValueError("DAE source arrays must contain finite numeric values")
         asset = asset_matrix(document.assetInfo)
         parts = []
         for geometry in geometries:
@@ -177,6 +184,18 @@ def read_collada(path: str | Path) -> tuple[ColladaPart, ...]:
                 )
         if not parts:
             raise ValueError("DAE document contains no static mesh geometry")
+        zero_normals = sum(
+            np.count_nonzero(~np.any(part.normals, axis=1))
+            for part in parts
+            if part.normals is not None
+        )
+        if zero_normals:
+            logger.warning(
+                "DAE mesh '%s' has %d zero-length corner normals; "
+                "Blender will use automatic normals for those corners",
+                path,
+                zero_normals,
+            )
         return tuple(parts)
     except (collada.common.DaeError, SyntaxError, IndexError, TypeError) as error:
         raise ValueError(f"Cannot read DAE mesh '{path}': {error}") from error

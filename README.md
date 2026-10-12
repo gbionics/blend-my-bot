@@ -80,7 +80,7 @@ subfolder.
 
 The browser lists every description advertised as URDF by the pinned
 `robot_descriptions` library (132 entries in version 3.2.0), without downloading
-them. **Bolt**, **Cassie**, **ANYmal B** and **G1** are marked **Blender-tested**;
+them. **Bolt**, **Cassie**, **ANYmal B**, **G1** and **Go2** are marked **Blender-tested**;
 all other entries are
 marked **Not yet Blender-tested**, but remain selectable and importable. That
 label reports test coverage, not a compatibility restriction.
@@ -242,6 +242,9 @@ DAE visuals use a bundled reader, not Blender's removed COLLADA importer.
 Asset units, X/Y/Z up axes, nested node transforms, geometry instances and
 URDF visual origins/scales are retained. Triangles and polygon faces, custom
 normals, UV sets and material bindings are imported as ordinary Blender meshes.
+Zero-length source normals use Blender's automatic normals for those corners,
+with a warning; valid custom normals are preserved. Nonfinite source data still
+fails explicitly.
 Only vertices used by each material group are retained.
 Line primitives are preserved as loose mesh edges; they have no rendered
 thickness. Line-specific normals/UVs are not supported.
@@ -335,6 +338,8 @@ to Blender to test real ANYmal B DAE assets, their packed textures, posed FK,
 motion and offline cache reuse.
 Use `--download-colors` instead to verify G1's 36 visuals against its source URDF
 colors, plus motion and offline reuse.
+Use `--download-go2` to test Go2's DAE meshes with zero-length source normals,
+posed FK, motion and offline cache reuse.
 
 To test a local robot model repository through the package browser:
 

@@ -20,6 +20,59 @@ spec.loader.exec_module(reader)
 
 
 class ColladaMeshTests(unittest.TestCase):
+    def test_zero_normals_preserve_auto_sentinels_and_valid_custom_normals(self):
+        for reflected in (False, True):
+            with self.subTest(reflected=reflected), TemporaryDirectory() as directory:
+                path = Path(directory) / "mesh.dae"
+                make_collada(path, reflected=reflected)
+                reference = reader.read_collada(path)
+                make_collada(path, reflected=reflected, zero_normals=True)
+                with self.assertLogs(reader.__name__, level="WARNING") as warnings:
+                    parts = reader.read_collada(path)
+                self.assertIn(str(path), warnings.output[0])
+                self.assertIn("4 zero-length corner normals", warnings.output[0])
+                for part, expected in zip(parts, reference):
+                    zero_index = len(part.normals) - 1 if reflected else 0
+                    np.testing.assert_array_equal(part.normals[zero_index], [0, 0, 0])
+                    valid = np.arange(len(part.normals)) != zero_index
+                    np.testing.assert_allclose(
+                        part.normals[valid], expected.normals[valid]
+                    )
+                    np.testing.assert_allclose(part.vertices, expected.vertices)
+                    self.assertEqual(part.faces, expected.faces)
+                    for uv, expected_uv in zip(part.texcoords, expected.texcoords):
+                        np.testing.assert_array_equal(uv, expected_uv)
+
+    def test_nonfinite_normals_still_fail_explicitly(self):
+        for value in (np.nan, np.inf):
+            with self.subTest(value=value), TemporaryDirectory() as directory:
+                path = Path(directory) / "mesh.dae"
+                document = make_collada(path, zero_normals=True)
+                document.geometries[0].sourceById["normals"].data[0] = value
+                with path.open("wb") as stream:
+                    document.write(stream)
+                with self.assertRaisesRegex(
+                    ValueError, "(source arrays|normals).*finite"
+                ):
+                    reader.read_collada(path)
+
+    def test_all_zero_normals_remain_finite_auto_sentinels(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "mesh.dae"
+            document = make_collada(path)
+            document.geometries[0].sourceById["normals"].data[:] = 0
+            with path.open("wb") as stream:
+                document.write(stream)
+            with (
+                np.errstate(divide="raise", invalid="raise"),
+                self.assertLogs(reader.__name__, level="WARNING") as warnings,
+            ):
+                parts = reader.read_collada(path)
+            self.assertIn("14 zero-length corner normals", warnings.output[0])
+            for part in parts:
+                self.assertTrue(np.all(np.isfinite(part.normals)))
+                np.testing.assert_array_equal(part.normals, 0)
+
     def test_lines_preserve_transformed_edges_and_compact_vertices(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "lines.dae"
