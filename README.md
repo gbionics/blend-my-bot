@@ -10,23 +10,27 @@
 
 ## 🐍 Requirements
 
-For the Blender extension, you only need a supported **Blender installation on
+For the Blender extension, you only need **Blender 5.0 or newer on
 Linux x86-64**. Its ZIP includes iDynTree and matching dependency wheels; do not
 replace Blender's Python or install `bpy` inside Blender.
+Blender 4.x and older are no longer supported.
+The optional **Online Catalog** additionally needs **Git available on PATH**
+for downloads. Local packages, URDF files and already-cached robots do not need Git.
 
 For the Python scripting API:
 
 - [`python3`](<https://wiki.python.org/moin/BeginnersGuide>)
-- [`Blender 4`](<https://www.blender.org/download/>)
+- [`Blender 5.0+`](<https://www.blender.org/download/>)
 - [`iDynTree`](<https://github.com/robotology/idyntree>)
 - [`numpy`](<https://numpy.org/>)
 - [`resolve-robotics-uri-py`](<https://github.com/ami-iit/resolve-robotics-uri-py>)
-- [`bpy 4`](<https://pypi.org/project/bpy/>)
+- [`pycollada`](<https://pypi.org/project/pycollada/>)
+- [`bpy 5.0+`](<https://pypi.org/project/bpy/>)
 
 > [!NOTE]
 > You should use a Python version that matches the one supported by the Blender version.
 > The Python version varies between Blender releases. Check the particular
-> Blender installation rather than assuming all Blender 4 releases use the same version.
+> Blender installation rather than assuming all Blender releases use the same version.
 
 > [!NOTE]
 > Robots are imported as meshes only. No armature or IK is generated; recorded
@@ -44,11 +48,58 @@ For the Python scripting API:
    menu, and choose **Install from Disk**. Select the extension ZIP and enable it.
 3. Choose **File → Import → Robot (.urdf)**, or open the 3D View sidebar with
    **N** and select the **Blend My Bot** tab.
-4. Select an available robot package and URDF, or use **Browse URDF File**.
+4. Choose a **Robot Source**: **Local Packages**, **Online Catalog**, or **URDF File**.
+   Select a package/URDF, download a catalog robot, or use **Browse URDF File**.
+
+#### Download a robot from the online catalog
+
+1. In the **Blend My Bot** sidebar, select **Online Catalog** as the **Robot Source**.
+2. Click **Search Robots**, or use the **Robot** dropdown, to choose any URDF
+   description from the bundled `robot_descriptions` catalog.
+3. Enable Blender's online access in **Preferences → System → Network**, and make
+   sure Git is installed and available on PATH when Blender starts.
+4. Click **Download & Import Robot**. The selected robot's upstream repository is
+   downloaded using the bundled
+   [`robot_descriptions`](https://github.com/robot-descriptions/robot_descriptions.py)
+   library. The catalog itself can be browsed without network access or downloads.
+5. Once cached, the button becomes **Import Cached Robot**. Further imports need
+   neither internet access nor Git, and create independent mesh-only collections.
+   **Load Robot Motion (.npy)** works exactly as for locally imported robots.
+
+Downloads run in an isolated process using Blender's bundled Python; the UI stays
+responsive and displays download status. Press **Esc** or **Cancel Download** to
+stop. Failed, timed-out and cancelled downloads are not promoted to the completed
+cache, and existing cached robots are kept. Downloads time out after ten minutes.
+Disabling the extension also stops an active download.
+
+The cache lives in Blender's writable extension-user directory, not inside the
+installed ZIP, so reinstalling the extension does not discard it. Its location is
+shown in the extension preferences. To recover a damaged cache or force a fresh
+download, use **Open Robot Cache** there and remove only the affected robot's
+subfolder.
+
+The browser lists every description advertised as URDF by the pinned
+`robot_descriptions` library (132 entries in version 3.2.0), without downloading
+them. **Bolt**, **Cassie**, **ANYmal B** and **G1** are marked **Blender-tested**;
+all other entries are
+marked **Not yet Blender-tested**, but remain selectable and importable. That
+label reports test coverage, not a compatibility restriction.
+
+Actual imports currently require a static URDF with OBJ/STL/DAE visual meshes.
+MJCF-only descriptions are excluded. Xacro-backed entries remain visible but
+report the need to generate a URDF and use **Browse URDF File**; Xacro generation
+is not bundled. Unsupported visual primitives and mesh formats also produce
+explicit errors rather than silently skipping geometry.
+For example, ANYmal B's DAE visuals import successfully, while ANYmal C and
+Upkie currently require visual primitive support and cannot be imported as-is.
+Robot assets retain their upstream licenses, shown beside the selection; they are
+downloaded on demand and are not bundled in the extension ZIP. Each cached entry
+records the pinned catalog-library version; incompatible cache metadata is rejected
+explicitly rather than silently loading another model.
 
 #### Choose a robot from installed packages
 
-In the **Blend My Bot** sidebar:
+In the **Blend My Bot** sidebar, select **Local Packages**:
 
 1. Open **Package Search Folders** and add a robot package directory or the folder
    containing your packages, if they are not already in a robotics resource path.
@@ -63,7 +114,7 @@ you can add the repository root, its `share/` directory, or `share/gene/`.
 The package selector shows **gene**, and `package://gene/...` meshes resolve
 without installing the model package or activating a Conda environment.
 
-Discovery does not download or install packages. It lists existing `.urdf` files
+Local discovery does not download or install packages. It lists existing `.urdf` files
 recursively, groups them by their nearest `package.xml` or `model.config`, and
 otherwise uses their package folder. Symlinked packages are supported, duplicate
 files and symlink cycles are avoided, and hidden subdirectories are skipped.
@@ -164,7 +215,52 @@ Reimport older collections with this version before loading motion; existing
 rigged scenes are not automatically converted. NumPy pickle archives also
 require a runtime compatible with their producer's NumPy version.
 
-**Current scope:** URDF import with OBJ/STL visual meshes, including
+#### Robot colors
+
+Inline URDF `<material><color rgba="..."/></material>` colors and references to
+named, robot-level materials become Principled materials on meshes without an
+existing material. This restores colors for STL-based robots such as G1.
+RGBA values must contain four finite numbers between zero and one; alpha is
+preserved for transparent materials. Undefined material names and invalid colors
+produce explicit errors instead of silently dropping visuals.
+
+Embedded OBJ/DAE materials take precedence and are not overwritten. Parts of the
+same import can share a color material; separate robot imports get independent
+materials. Scripting reimports that reuse existing objects leave user-edited
+materials untouched. URDF texture-only materials are not supported; textures
+embedded in OBJ/DAE assets are handled by their mesh importers.
+
+Use **Material Preview** or **Rendered** viewport shading to see the materials.
+In **Solid** shading, choose **Color → Material** (or **Object** for URDF fallback
+colors). Imports do not change your viewport shading settings. After installing
+the updated extension, reimport older uncolored robots; existing scenes are not
+automatically recolored. Materials survive motion playback and saving/reopening.
+
+#### COLLADA / DAE meshes
+
+DAE visuals use a bundled reader, not Blender's removed COLLADA importer.
+Asset units, X/Y/Z up axes, nested node transforms, geometry instances and
+URDF visual origins/scales are retained. Triangles and polygon faces, custom
+normals, UV sets and material bindings are imported as ordinary Blender meshes.
+Only vertices used by each material group are retained.
+Line primitives are preserved as loose mesh edges; they have no rendered
+thickness. Line-specific normals/UVs are not supported.
+
+Local diffuse, emission, specular and transparency textures are packed into the
+`.blend`, so they survive saving and reopening without their source files.
+Relative paths, URI-encoded filenames and local `file://` texture paths work;
+remote texture downloads are not supported. Missing textures and missing UV
+bindings produce explicit errors and roll back the failed robot import.
+
+COMMON constant/Lambert/Phong/Blinn material properties are translated to
+Principled materials. This is an approximation, not exact shader equivalence:
+ambient/reflection shading and exporter-specific effects are not reproduced.
+Bump maps, polygon holes, animated/skinned/morphed DAE assets and unsupported
+primitive types are rejected explicitly. Export static meshes without those
+features; the robot's motion still comes from URDF FK and `.npy` joint values.
+No DAE armature or rig is generated.
+
+**Current scope:** URDF import with OBJ/STL/DAE visual meshes, including
 multiple visuals per link. Primitive visuals and other mesh formats produce
 explicit errors. Mesh files referenced by collision geometry must also exist.
 Recorded `.npy` motion loading is supported as described above; animation is
@@ -182,24 +278,34 @@ source .venv/bin/activate
 python tools/build_extension.py --blender /path/to/blender
 ```
 
-The builder downloads pinned iDynTree and resolve-robotics-uri-py wheels and the
+The builder downloads iDynTree, resolve-robotics-uri-py, robot_descriptions,
+pycollada and their dependencies, plus the
 NumPy version used by that Blender runtime, copies the scripting API library, and
 produces a self-contained ZIP under `dist/`. Installation requires no network
 access. The manifest limits installation to the Blender major.minor release
 used to build it, preventing installation with an incompatible Python ABI.
-Blender 4.2 or later is required.
+Blender 5.0 or later is required; the builder rejects Blender 4.x before downloads.
 
 To validate locally without changing your normal Blender preferences:
 
 ```bash
-python -m pip install resolve-robotics-uri-py==0.5.1 numpy
+python -m pip install resolve-robotics-uri-py==0.5.1 numpy robot_descriptions==3.2.0 pycollada==0.9.3
 python -m unittest discover -s tests -p 'test_*.py'
 BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
   --factory-startup --python-exit-code 1 --python tests/blender_smoke.py -- \
-  dist/blend_my_bot-0.1.0-blender-4.2-linux-x64.zip
+  dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
 BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
   --factory-startup --python-exit-code 1 --python tests/blender_motion.py -- \
-  dist/blend_my_bot-0.1.0-blender-4.2-linux-x64.zip
+  dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
+  --factory-startup --python-exit-code 1 --python tests/blender_online.py -- \
+  dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
+  --factory-startup --python-exit-code 1 --python tests/blender_collada.py -- \
+  dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
+  --factory-startup --python-exit-code 1 --python tests/blender_materials.py -- \
+  dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
 ```
 
 Use your actual ZIP filename. The smoke test installs the extension into a
@@ -210,6 +316,25 @@ The motion test checks named-joint mapping, quaternion conventions, exact sample
 poses and timing, the final sample, multiple visual parts, long/renamed mesh
 names, independent instances, replacement protection, rollback and save/reopen.
 It exercises real Blender operators in background mode, not visual GUI playback.
+The online test uses local fixtures to verify cached/offline imports, missing Git,
+disabled network access, modal progress/cancellation/timeouts, download errors and
+extension shutdown without making network requests. Add `--download` after its ZIP
+argument and pass `--online-mode` to Blender to download and import the
+**Blender-tested** robots, check motion playback, and repeat each import offline.
+Catalog tests compare the complete selectable set with the library's URDF
+metadata and verify that untested entries are not blocked. Downloads use a
+temporary test cache rather than modifying your regular model cache.
+The COLLADA test checks units, node transforms, URDF scaling, normals, UV
+bindings, materials, packed textures, motion, import rollback and save/reopen
+without source assets.
+The materials test covers inline/named RGBA colors, OBJ/DAE material precedence,
+multipart fallback, independent imports, scripting reuse, malformed materials,
+rollback, motion and save/reopen.
+Add `--download-dae` to the online test's ZIP argument and pass `--online-mode`
+to Blender to test real ANYmal B DAE assets, their packed textures, posed FK,
+motion and offline cache reuse.
+Use `--download-colors` instead to verify G1's 36 visuals against its source URDF
+colors, plus motion and offline reuse.
 
 To test a local robot model repository through the package browser:
 
@@ -253,7 +378,8 @@ pip install blend-my-bot
 If you prefer to do it manually, you can follow these steps:
 
 ```bash
-conda create -n blender_env python=3.10
+# Example for Blender 5.0; match your installed Blender's Python version.
+conda create -n blender_env python=3.11
 conda activate blender_env
 ```
 
