@@ -79,6 +79,7 @@ def build_extension(blender: str, output: Path) -> Path:
                 "manylinux_2_17_x86_64",
                 "idyntree==15.1.0",
                 "resolve-robotics-uri-py==0.5.1",
+                "robot_descriptions==3.2.0",
                 "pycollada==0.9.3",
                 "numpy==" + runtime["numpy"],
             ],

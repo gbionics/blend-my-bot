@@ -17,7 +17,7 @@ from bpy_extras.io_utils import ImportHelper
 from .blend_my_bot import ModelImporter
 from .blend_my_bot.robot_catalog import RobotDescription, iter_robot_descriptions
 from .blend_my_bot.urdf_paths import resolved_urdf
-from . import motion
+from . import motion, online
 
 logger = logging.getLogger(__name__)
 SCAN_TIME_SLICE = 0.02
@@ -42,6 +42,15 @@ def update_package(self, context):
 
 
 class BMB_Catalog(bpy.types.PropertyGroup):
+    source: EnumProperty(
+        name="Robot Source",
+        items=[
+            ("LOCAL", "Local Packages", "Browse installed robot packages"),
+            ("ONLINE", "Online Catalog", "Download a supported robot description"),
+            ("FILE", "URDF File", "Choose a local URDF file"),
+        ],
+        default="LOCAL",
+    )
     package: EnumProperty(
         name="Package",
         items=package_items,
@@ -249,6 +258,13 @@ class BMB_Preferences(bpy.types.AddonPreferences):
     search_paths: CollectionProperty(type=BMB_SearchPath)
 
     def draw(self, context):
+        self.layout.label(text=f"Online model cache: {online.cache_directory()}")
+        operator = self.layout.operator(
+            "wm.path_open", text="Open Robot Cache", icon="FILE_FOLDER"
+        )
+        operator.filepath = str(online.cache_directory())
+        self.layout.label(text="Online downloads require Git on PATH")
+        self.layout.separator()
         self.layout.label(text="Package folders or folders containing robot packages")
         for index, entry in enumerate(self.search_paths):
             row = self.layout.row(align=True)
@@ -393,22 +409,29 @@ class BMB_PT_RobotPanel(bpy.types.Panel):
 
     def draw(self, context):
         settings = context.window_manager.blend_my_bot_catalog
-        box = self.layout.box()
-        box.label(text="Available Robots")
-        box.operator("blend_my_bot.refresh_catalog", icon="FILE_REFRESH")
-        box.label(text=settings.status)
-        selection = box.column()
-        selection.enabled = bool(_catalog) and not settings.scanning
-        selection.prop(settings, "package")
-        selection.prop(settings, "urdf")
-        selection.operator("blend_my_bot.import_available_robot", icon="IMPORT")
-        self.layout.operator(
-            "blend_my_bot.import_robot", text="Browse URDF File", icon="FILE_FOLDER"
-        )
-        operator = self.layout.operator(
-            "preferences.addon_show", text="Package Search Folders"
-        )
-        operator.module = __package__
+        source = self.layout.row()
+        source.enabled = not context.window_manager.blend_my_bot_online.downloading
+        source.prop(settings, "source")
+        if settings.source == "ONLINE":
+            online.draw_online(self.layout, context)
+        else:
+            if settings.source == "LOCAL":
+                box = self.layout.box()
+                box.label(text="Available Robots")
+                box.operator("blend_my_bot.refresh_catalog", icon="FILE_REFRESH")
+                box.label(text=settings.status)
+                selection = box.column()
+                selection.enabled = bool(_catalog) and not settings.scanning
+                selection.prop(settings, "package")
+                selection.prop(settings, "urdf")
+                selection.operator("blend_my_bot.import_available_robot", icon="IMPORT")
+            self.layout.operator(
+                "blend_my_bot.import_robot", text="Browse URDF File", icon="FILE_FOLDER"
+            )
+            operator = self.layout.operator(
+                "preferences.addon_show", text="Package Search Folders"
+            )
+            operator.module = __package__
         self.layout.label(text="OBJ/STL/DAE visuals; mesh-only import")
         motion.draw_motion(self.layout, context)
 
@@ -436,12 +459,14 @@ def register():
     bpy.types.WindowManager.blend_my_bot_catalog = PointerProperty(type=BMB_Catalog)
     bpy.types.TOPBAR_MT_file_import.append(import_menu)
     motion.register()
+    online.register()
 
 
 def unregister():
     global _catalog, _package_items, _urdf_items
     if _active_scan is not None:
         _active_scan.cancel(bpy.context)
+    online.unregister()
     motion.unregister()
     bpy.types.TOPBAR_MT_file_import.remove(import_menu)
     del bpy.types.WindowManager.blend_my_bot_catalog

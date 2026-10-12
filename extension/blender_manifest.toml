@@ -12,4 +12,5 @@ license = ["SPDX:BSD-3-Clause"]
 platforms = ["linux-x64"]
 
 [permissions]
-files = "Read robot descriptions and their mesh files"
+files = "Read robot files and cache downloaded models"
+network = "Download selected robots from their upstream repositories"
