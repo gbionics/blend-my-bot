@@ -7,7 +7,7 @@ maintainer = "Blend My Bot contributors"
 type = "add-on"
 website = "https://github.com/gbionics/blend-my-bot"
 tags = ["Import-Export"]
-blender_version_min = "4.2.0"
+blender_version_min = "5.0.0"
 license = ["SPDX:BSD-3-Clause"]
 platforms = ["linux-x64"]
 

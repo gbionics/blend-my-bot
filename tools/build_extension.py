@@ -44,8 +44,8 @@ def build_extension(blender: str, output: Path) -> Path:
     major, minor, _ = runtime["blender"]
     if runtime["platform"] != "linux" or runtime["machine"] != "x86_64":
         raise ValueError("Extension builds currently support Linux x86-64 only")
-    if (major, minor) < (4, 2):
-        raise ValueError("Blender 4.2 or newer is required")
+    if (major, minor) < (5, 0):
+        raise ValueError("Blender 5.0 or newer is required; Blender 4.x is unsupported")
     python_version = ".".join(map(str, runtime["python"]))
     output.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix="blend-my-bot-build-") as directory:
@@ -86,7 +86,7 @@ def build_extension(blender: str, output: Path) -> Path:
         manifest = staging / "blender_manifest.toml"
         content = manifest.read_text()
         content = content.replace(
-            'blender_version_min = "4.2.0"',
+            'blender_version_min = "5.0.0"',
             f'blender_version_min = "{major}.{minor}.0"\n'
             f'blender_version_max = "{major}.{minor + 1}.0"',
         )
