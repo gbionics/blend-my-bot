@@ -1,18 +1,60 @@
 from dataclasses import dataclass
-from typing import List
+from typing import Dict, List, Optional
+import xml.etree.ElementTree as ET
 
 import bpy
 import idyntree.bindings as idyntree
 import numpy as np
 
-from blend_my_bot import BlenderModel, Link
+from .blender_model import BlenderModel
+from .collada_importer import import_collada
+from .link import Link
+from .urdf_paths import validate_visual_materials
+
+
+def apply_urdf_color(
+    mesh: bpy.types.Object,
+    visual: idyntree.SolidShape,
+    materials: dict[tuple[float, ...], bpy.types.Material],
+) -> None:
+    if any(mesh.data.materials):
+        return
+    source = visual.getMaterial()
+    if not source.hasColor():
+        return
+    rgba = tuple(float(value) for value in source.color().toNumPy().ravel())
+    if (
+        len(rgba) != 4
+        or not all(np.isfinite(rgba))
+        or any(not 0 <= value <= 1 for value in rgba)
+    ):
+        raise ValueError(f"Invalid URDF material RGBA color for '{mesh.name}'")
+    if rgba not in materials:
+        material = bpy.data.materials.new(f"{mesh.name} URDF")
+        if material.node_tree is None:
+            material.use_nodes = True
+        shader = material.node_tree.nodes.get("Principled BSDF")
+        if shader is None:
+            raise RuntimeError("Blender did not create a Principled material node")
+        material.diffuse_color = rgba
+        shader.inputs["Base Color"].default_value = rgba
+        shader.inputs["Alpha"].default_value = rgba[3]
+        material.surface_render_method = "DITHERED"
+        materials[rgba] = material
+    mesh.data.materials.clear()
+    mesh.data.materials.append(materials[rgba])
+    mesh.data.polygons.foreach_set("material_index", [0] * len(mesh.data.polygons))
+    mesh.color = rgba
 
 
 @dataclass
 class ModelImporter:
     @staticmethod
     def build_model(
-        model_name: str, urdf_path: str, joints_list: List = None
+        model_name: str,
+        urdf_path: str,
+        joints_list: Optional[List[str]] = None,
+        collection: Optional[bpy.types.Collection] = None,
     ) -> BlenderModel:
         """Build the model of the robot in blender
 
@@ -20,22 +62,30 @@ class ModelImporter:
             model_name (str): Name of the model
             urdf_path (str): Path to the urdf file
             joints_list (List, optional): List of joints to import. Defaults to None.
+            collection (bpy.types.Collection, optional): Import into a separate
+                collection instead of reusing existing named meshes.
 
         Returns:
             BlenderModel: Model of the robot in blender
         """
 
+        validate_visual_materials(ET.parse(urdf_path).getroot())
         kindyn = ModelImporter.build_kindyn(urdf_path, joints_list)
         model_loader_geometry = idyntree.ModelLoader()
-        model_loader_geometry.loadModelFromFile(urdf_path)
+        if not model_loader_geometry.loadModelFromFile(urdf_path):
+            raise ValueError(f"Cannot load robot geometry from {urdf_path}")
         model_geometry = model_loader_geometry.model().copy()
-        links = ModelImporter.import_links(model_name, model_geometry, kindyn)
+        links = ModelImporter.import_links(
+            model_name, model_geometry, kindyn, collection
+        )
         return BlenderModel(
             name=model_name, links=links, kindyn=kindyn, model_geometry=model_geometry
         )
 
     @staticmethod
-    def build_kindyn(urdf_path: str, joints_list: List = None):
+    def build_kindyn(
+        urdf_path: str, joints_list: Optional[List[str]] = None
+    ) -> idyntree.KinDynComputations:
         """Build the kindyn model
 
         Args:
@@ -48,12 +98,15 @@ class ModelImporter:
 
         model_loader = idyntree.ModelLoader()
         if joints_list is None:
-            model_loader.loadModelFromFile(urdf_path)
+            loaded = model_loader.loadModelFromFile(urdf_path)
         else:
-            model_loader.loadReducedModelFromFile(urdf_path, joints_list)
+            loaded = model_loader.loadReducedModelFromFile(urdf_path, joints_list)
+        if not loaded:
+            raise ValueError(f"Cannot load robot model from {urdf_path}")
         model = model_loader.model()
         kindyn = idyntree.KinDynComputations()
-        kindyn.loadRobotModel(model)
+        if not kindyn.loadRobotModel(model):
+            raise ValueError(f"Cannot initialize robot kinematics from {urdf_path}")
         return kindyn
 
     @staticmethod
@@ -61,7 +114,8 @@ class ModelImporter:
         model_name: str,
         model_geometry: idyntree.Model,
         kindyn: idyntree.KinDynComputations,
-    ) -> List[Link]:
+        collection: Optional[bpy.types.Collection] = None,
+    ) -> Dict[str, Link]:
         """Import the links of the robot in blender
 
         Args:
@@ -70,11 +124,12 @@ class ModelImporter:
             kindyn (idyntree.KinDynComputations): Kindyn model
 
         Returns:
-            List[Link]: List of links
+            Dict[str, Link]: Visual parts mapped to their robot links
         """
 
         visuals = model_geometry.visualSolidShapes().getLinkSolidShapes()
         links = {}
+        materials = {}
         existing_objects = bpy.context.scene.objects.keys()
         # set zero position
         kindyn.setRobotState(
@@ -88,36 +143,80 @@ class ModelImporter:
             link_name = model_geometry.getLinkName(link_id)
             if visuals[link_id] == ():  # no visual
                 continue
-            link_visual = visuals[link_id][0]
-            if link_visual.isExternalMesh():
+            for visual_index, link_visual in enumerate(visuals[link_id]):
+                if not link_visual.isExternalMesh():
+                    raise ValueError(
+                        f"Link '{link_name}' has an unsupported visual primitive; "
+                        "use OBJ, STL or DAE meshes"
+                    )
                 mesh_path = (
                     link_visual.asExternalMesh().getFileLocationOnLocalFileSystem()
                 )
                 print(f"mesh_path {mesh_path}")
-                mesh_name = f"{model_name}_{link_name}_mesh"
-                if mesh_name in existing_objects:
+                suffix = "" if visual_index == 0 else f"_{visual_index}"
+                mesh_name = f"{model_name}_{link_name}_mesh{suffix}"
+                existing = bpy.data.objects.get(mesh_name)
+                reuse_existing = (
+                    collection is None
+                    and existing is not None
+                    and mesh_name in existing_objects
+                )
+                if reuse_existing:
                     print(f"Using existing mesh {mesh_name}")
                     mesh = bpy.data.objects[mesh_name]
-                elif mesh_path.endswith(".obj"):
+                elif mesh_path.lower().endswith(".obj"):
                     print(f"Importing {mesh_path}")
-                    bpy.ops.wm.obj_import(filepath=mesh_path)
-                    mesh = bpy.context.selected_objects[0]
-                elif mesh_path.endswith(".stl"):
+                    result = bpy.ops.wm.obj_import(filepath=mesh_path)
+                    if result != {"FINISHED"} or not bpy.context.selected_objects:
+                        raise ValueError(f"No mesh objects imported from {mesh_path}")
+                elif mesh_path.lower().endswith(".stl"):
                     print(f"Importing {mesh_path}")
-                    bpy.ops.wm.stl_import(filepath=mesh_path)
-                    mesh = bpy.context.selected_objects[0]
+                    result = bpy.ops.wm.stl_import(filepath=mesh_path)
+                    if result != {"FINISHED"} or not bpy.context.selected_objects:
+                        raise ValueError(f"No mesh objects imported from {mesh_path}")
+                elif mesh_path.lower().endswith(".dae"):
+                    import_collada(mesh_path)
                 else:
                     raise ValueError(
                         f"Extension {mesh_path.split('.')[-1]} not supported"
                     )
-                mesh.name = mesh_name
-                mesh.scale = link_visual.asExternalMesh().getScale().toNumPy().flatten()
-                mesh.rotation_mode = "QUATERNION"
                 l_H_g = link_visual.getLink_H_geometry()
                 # set link pose to rest position
                 w_H_l = kindyn.getWorldTransform(link_name)
                 w_H_g = w_H_l * l_H_g
-                mesh.location = w_H_g.getPosition()
-                mesh.rotation_quaternion = w_H_g.getRotation().asQuaternion()
-                links[link_name] = Link(link_name, mesh, l_H_g)
+                imported_meshes = (
+                    [mesh] if reuse_existing else list(bpy.context.selected_objects)
+                )
+                if reuse_existing:
+                    part_index = 1
+                    while f"{mesh_name}_part_{part_index}" in existing_objects:
+                        imported_meshes.append(
+                            bpy.data.objects[f"{mesh_name}_part_{part_index}"]
+                        )
+                        part_index += 1
+                for part_index, mesh in enumerate(imported_meshes):
+                    part_suffix = "" if part_index == 0 else f"_part_{part_index}"
+                    mesh.name = mesh_name + part_suffix
+                    if not reuse_existing:
+                        apply_urdf_color(mesh, link_visual, materials)
+                    mesh.scale = (
+                        link_visual.asExternalMesh().getScale().toNumPy().flatten()
+                    )
+                    mesh.rotation_mode = "QUATERNION"
+                    mesh.location = w_H_g.getPosition().toNumPy().flatten()
+                    mesh.rotation_quaternion = (
+                        w_H_g.getRotation().asQuaternion().toNumPy()
+                    )
+                    if collection is not None:
+                        for previous_collection in list(mesh.users_collection):
+                            previous_collection.objects.unlink(mesh)
+                        collection.objects.link(mesh)
+                    key = link_name + suffix + part_suffix
+                    links[key] = Link(link_name, mesh, l_H_g)
+                    if collection is not None:
+                        mesh["blend_my_bot_link"] = link_name
+                        mesh["blend_my_bot_visual_key"] = key
+                        mesh["blend_my_bot_link_H_geometry"] = (
+                            l_H_g.asHomogeneousTransform().toNumPy().ravel().tolist()
+                        )
         return links

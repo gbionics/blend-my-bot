@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<robot name="blend_my_bot_test">
+  <link name="base">
+    <visual>
+      <geometry><mesh filename="cube.obj" scale="0.6 0.4 0.2"/></geometry>
+    </visual>
+  </link>
+  <link name="arm">
+    <visual>
+      <origin xyz="0 0 0.4"/>
+      <geometry><mesh filename="cube.obj" scale="0.12 0.12 0.8"/></geometry>
+    </visual>
+  </link>
+  <joint name="shoulder" type="revolute">
+    <parent link="base"/>
+    <child link="arm"/>
+    <origin xyz="0 0 0.1"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="10" velocity="1"/>
+  </joint>
+</robot>

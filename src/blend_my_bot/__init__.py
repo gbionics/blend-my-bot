@@ -1,3 +1,8 @@
-from blend_my_bot.link import Link
-from blend_my_bot.blender_model import BlenderModel
-from blend_my_bot.model_importer import ModelImporter
+import bpy
+
+if bpy.app.version < (5, 0, 0):
+    raise RuntimeError("Blend My Bot requires Blender 5.0 or newer")
+
+from .link import Link
+from .blender_model import BlenderModel
+from .model_importer import ModelImporter
