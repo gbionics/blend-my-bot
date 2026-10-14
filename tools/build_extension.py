@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,7 +11,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def build_extension(blender: str, output: Path) -> Path:
+def build_extension(
+    blender: str, output: Path, version: str | None = None
+) -> Path:
     expression = (
         "import bpy,json,numpy,sys,platform; "
         "print('BMB_RUNTIME='+json.dumps({"
@@ -100,8 +103,22 @@ def build_extension(blender: str, output: Path) -> Path:
             "[permissions]",
             "wheels = [" + ", ".join(wheel_paths) + "]\n\n[permissions]",
         )
+        if version:
+            content = re.sub(
+                r'^version = ".*"$',
+                f'version = "{version}"',
+                content,
+                count=1,
+                flags=re.MULTILINE,
+            )
         manifest.write_text(content)
-        archive = output / f"blend_my_bot-0.1.0-blender-{major}.{minor}-linux-x64.zip"
+        package_version = re.search(
+            r'^version = "(.*)"$', content, flags=re.MULTILINE
+        ).group(1)
+        archive = (
+            output
+            / f"blend_my_bot-{package_version}-blender-{major}.{minor}-linux-x64.zip"
+        )
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as package:
             for path in sorted(staging.rglob("*")):
                 if path.is_file() and "__pycache__" not in path.parts:
@@ -117,6 +134,9 @@ if __name__ == "__main__":
         description="Build a self-contained Linux extension"
     )
     parser.add_argument("--blender", default="blender")
+    parser.add_argument(
+        "--version", help="Extension version (default: from the manifest)"
+    )
     parser.add_argument("--output", type=Path, default=ROOT / "dist")
     arguments = parser.parse_args()
-    print(build_extension(arguments.blender, arguments.output))
+    print(build_extension(arguments.blender, arguments.output, arguments.version))

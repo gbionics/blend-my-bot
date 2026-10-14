@@ -27,26 +27,28 @@ jobs:
           python -m pip install resolve-robotics-uri-py==0.5.1 numpy==1.26.4 'scipy>=1.14' robot_descriptions==3.2.0 pycollada==0.9.3
           python -m unittest discover -s tests -p 'test_*.py'
       - name: Build self-contained extension
-        run: python tools/build_extension.py
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+        run: python tools/build_extension.py ${RELEASE_TAG:+--version "${RELEASE_TAG#v}"}
       - name: Test installation, robot imports and motion loading
         env:
           BLENDER_USER_RESOURCES: ${{ runner.temp }}/blend-my-bot-profile
         run: |
           blender --background --factory-startup --python-exit-code 1 \
             --python tests/blender_smoke.py -- \
-            dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+            dist/blend_my_bot-*-blender-5.0-linux-x64.zip
           blender --background --factory-startup --python-exit-code 1 \
             --python tests/blender_motion.py -- \
-            dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+            dist/blend_my_bot-*-blender-5.0-linux-x64.zip
           blender --background --factory-startup --python-exit-code 1 \
             --python tests/blender_online.py -- \
-            dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+            dist/blend_my_bot-*-blender-5.0-linux-x64.zip
           blender --background --factory-startup --python-exit-code 1 \
             --python tests/blender_collada.py -- \
-            dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+            dist/blend_my_bot-*-blender-5.0-linux-x64.zip
           blender --background --factory-startup --python-exit-code 1 \
             --python tests/blender_materials.py -- \
-            dist/blend_my_bot-0.1.0-blender-5.0-linux-x64.zip
+            dist/blend_my_bot-*-blender-5.0-linux-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: blend-my-bot-blender-5.0-linux-x64
