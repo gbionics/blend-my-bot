@@ -82,6 +82,7 @@ def build_extension(blender: str, output: Path) -> Path:
                 "robot_descriptions==3.2.0",
                 "pycollada==0.9.3",
                 "numpy==" + runtime["numpy"],
+                "scipy>=1.14",
             ],
             check=True,
         )

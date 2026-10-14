@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 QUATERNION_NORM_TOLERANCE = 1e-3
 
@@ -35,17 +36,10 @@ class RobotMotion:
         return start_frame + np.arange(self.samples) * scene_fps / self.fps
 
     def base_transforms(self) -> np.ndarray:
-        w, x, y, z = self.root_quaternions.T
         matrices = np.broadcast_to(np.eye(4), (self.samples, 4, 4)).copy()
-        matrices[:, 0, 0] = 1 - 2 * (y * y + z * z)
-        matrices[:, 0, 1] = 2 * (x * y - w * z)
-        matrices[:, 0, 2] = 2 * (x * z + w * y)
-        matrices[:, 1, 0] = 2 * (x * y + w * z)
-        matrices[:, 1, 1] = 1 - 2 * (x * x + z * z)
-        matrices[:, 1, 2] = 2 * (y * z - w * x)
-        matrices[:, 2, 0] = 2 * (x * z - w * y)
-        matrices[:, 2, 1] = 2 * (y * z + w * x)
-        matrices[:, 2, 2] = 1 - 2 * (x * x + y * y)
+        matrices[:, :3, :3] = Rotation.from_quat(
+            self.root_quaternions, scalar_first=True
+        ).as_matrix()
         matrices[:, :3, 3] = self.root_positions
         return matrices
 
@@ -86,14 +80,14 @@ def parse_motion(data, quaternion_order: str = "WXYZ") -> RobotMotion:
         raise ValueError("Motion 'root_position' must have shape (samples, 3)")
     if quaternions.shape != (len(positions), 4):
         raise ValueError("Motion 'root_quaternion' must have shape (samples, 4)")
-    if quaternion_order == "XYZW":
-        quaternions = quaternions[:, [3, 0, 1, 2]]
-    elif quaternion_order != "WXYZ":
+    if quaternion_order not in {"WXYZ", "XYZW"}:
         raise ValueError("Quaternion order must be WXYZ or XYZW")
     norms = np.linalg.norm(quaternions, axis=1)
     if np.any(np.abs(norms - 1) > QUATERNION_NORM_TOLERANCE):
         raise ValueError("Motion root quaternions must be unit length")
-    quaternions /= norms[:, None]
+    quaternions = Rotation.from_quat(
+        quaternions, scalar_first=quaternion_order == "WXYZ"
+    ).as_quat(scalar_first=True)
     motion = RobotMotion(joints, fps, positions, root_positions, quaternions)
     if "duration" in data:
         duration = _numeric_array(data["duration"], "duration")

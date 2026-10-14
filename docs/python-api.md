@@ -13,6 +13,7 @@ For the Python scripting API:
 - [`Blender 5.0+`](<https://www.blender.org/download/>)
 - [`iDynTree`](<https://github.com/robotology/idyntree>)
 - [`numpy`](<https://numpy.org/>)
+- [`SciPy 1.14+`](<https://scipy.org/>) for rotation conversions and normalization
 - [`resolve-robotics-uri-py`](<https://github.com/ami-iit/resolve-robotics-uri-py>)
 - [`pycollada`](<https://pypi.org/project/pycollada/>)
 - [`bpy 5.0+`](<https://pypi.org/project/bpy/>)

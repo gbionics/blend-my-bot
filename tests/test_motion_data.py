@@ -61,12 +61,61 @@ class MotionDataTests(unittest.TestCase):
         )
 
     def test_rounding_noise_normalized_without_modifying_input(self):
+        for order in ("WXYZ", "XYZW"):
+            for scale in (0.9999997, 0.9991, 1.0009):
+                with self.subTest(order=order, scale=scale):
+                    data = sample_data()
+                    expected = np.array(
+                        [[0.5, 0.5, 0.5, 0.5], [-1, 0, 0, 0], [0, 1, 0, 0]]
+                    )
+                    data["root_quaternion"] = expected * scale
+                    if order == "XYZW":
+                        data["root_quaternion"] = data["root_quaternion"][
+                            :, [1, 2, 3, 0]
+                        ]
+                    original = data["root_quaternion"].copy()
+                    motion = motion_data.parse_motion(data, order)
+                    np.testing.assert_array_equal(data["root_quaternion"], original)
+                    np.testing.assert_allclose(motion.root_quaternions, expected)
+
+    def test_nonunit_quaternions_are_rejected_before_scipy_normalization(self):
+        for order in ("WXYZ", "XYZW"):
+            for scale in (0.9989, 1.0011):
+                with self.subTest(order=order, scale=scale):
+                    data = sample_data()
+                    data["root_quaternion"] *= scale
+                    if order == "XYZW":
+                        data["root_quaternion"] = data["root_quaternion"][
+                            :, [1, 2, 3, 0]
+                        ]
+                    with self.assertRaisesRegex(ValueError, "unit length"):
+                        motion_data.parse_motion(data, order)
+
+    def test_base_transforms_preserve_mixed_rotations_and_homogeneous_rows(self):
         data = sample_data()
-        data["root_quaternion"] *= 0.9999997
-        original = data["root_quaternion"].copy()
+        data["root_quaternion"] = np.array(
+            [
+                [0.5, 0.5, 0.5, 0.5],
+                [-np.sqrt(0.5), 0, -np.sqrt(0.5), 0],
+                [0, 1, 0, 0],
+            ]
+        )
         motion = motion_data.parse_motion(data)
-        np.testing.assert_array_equal(data["root_quaternion"], original)
-        np.testing.assert_allclose(np.linalg.norm(motion.root_quaternions, axis=1), 1)
+        original = motion.root_quaternions.copy()
+        matrices = motion.base_transforms()
+        self.assertEqual(matrices.shape, (3, 4, 4))
+        np.testing.assert_allclose(
+            matrices[:, :3, :3],
+            [
+                [[0, 0, 1], [1, 0, 0], [0, 1, 0]],
+                [[0, 0, 1], [0, 1, 0], [-1, 0, 0]],
+                [[1, 0, 0], [0, -1, 0], [0, 0, -1]],
+            ],
+            atol=1e-12,
+        )
+        np.testing.assert_array_equal(matrices[:, :3, 3], data["root_position"])
+        np.testing.assert_array_equal(matrices[:, 3], [[0, 0, 0, 1]] * 3)
+        np.testing.assert_array_equal(motion.root_quaternions, original)
 
     def test_trust_required_before_deserialization(self):
         with patch.object(motion_data.np, "load") as load:

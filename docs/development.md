@@ -17,8 +17,9 @@ python tools/build_extension.py --blender /path/to/blender
 
 The builder downloads iDynTree, resolve-robotics-uri-py, robot_descriptions,
 pycollada and their dependencies, plus the
-NumPy version used by that Blender runtime, copies the scripting API library, and
-produces a self-contained ZIP under `dist/`. Installation requires no network
+NumPy version used by that Blender runtime and a compatible SciPy wheel. It copies
+the scripting API library and produces a self-contained ZIP under `dist/`.
+Installation requires no network
 access. The manifest limits installation to the Blender major.minor release
 used to build it, preventing installation with an incompatible Python ABI.
 Blender 5.0 or later is required; the builder rejects Blender 4.x before downloads.
@@ -28,7 +29,7 @@ Blender 5.0 or later is required; the builder rejects Blender 4.x before downloa
 To validate locally without changing your normal Blender preferences:
 
 ```bash
-python -m pip install resolve-robotics-uri-py==0.5.1 numpy robot_descriptions==3.2.0 pycollada==0.9.3
+python -m pip install resolve-robotics-uri-py==0.5.1 numpy 'scipy>=1.14' robot_descriptions==3.2.0 pycollada==0.9.3
 python -m unittest discover -s tests -p 'test_*.py'
 BLENDER_USER_RESOURCES="$PWD/.blender-test-profile" blender --background \
   --factory-startup --python-exit-code 1 --python tests/blender_smoke.py -- \

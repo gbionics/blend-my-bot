@@ -4,13 +4,14 @@ from pathlib import Path
 
 import collada
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 logger = logging.getLogger(__name__)
 
 AXIS_ROTATIONS = {
-    "Z_UP": np.eye(3),
-    "Y_UP": np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]]),
-    "X_UP": np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]]),
+    "Z_UP": Rotation.identity().as_matrix(),
+    "Y_UP": Rotation.from_euler("x", 90, degrees=True).as_matrix(),
+    "X_UP": Rotation.from_euler("y", -90, degrees=True).as_matrix(),
 }
 
 

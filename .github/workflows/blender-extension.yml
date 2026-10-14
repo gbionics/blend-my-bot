@@ -22,7 +22,7 @@ jobs:
           echo "$PWD/blender-5.0.1-linux-x64" >> "$GITHUB_PATH"
       - name: Test paths, discovery, motion format and online catalog
         run: |
-          python -m pip install resolve-robotics-uri-py==0.5.1 numpy==1.26.4 robot_descriptions==3.2.0 pycollada==0.9.3
+          python -m pip install resolve-robotics-uri-py==0.5.1 numpy==1.26.4 'scipy>=1.14' robot_descriptions==3.2.0 pycollada==0.9.3
           python -m unittest discover -s tests -p 'test_*.py'
       - name: Build self-contained extension
         run: python tools/build_extension.py
